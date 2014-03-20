@@ -23,7 +23,7 @@ static NSString * HIPEscapedQueryString(NSString *string) {
     static NSString * const kHIPCharactersToBeEscaped = @":/?&=;+!@#$()',*";
     static NSString * const kHIPCharactersToLeaveUnescaped = @"[].";
     
-	return (__bridge_transfer  NSString *)CFURLCreateStringByAddingPercentEscapes(kCFAllocatorDefault, (__bridge CFStringRef)string, (__bridge CFStringRef)kHIPCharactersToLeaveUnescaped, (__bridge CFStringRef)kHIPCharactersToBeEscaped, NSUTF8StringEncoding);
+	return (__bridge_transfer  NSString *)CFURLCreateStringByAddingPercentEscapes(kCFAllocatorDefault, (__bridge CFStringRef)string, (__bridge CFStringRef)kHIPCharactersToLeaveUnescaped, (__bridge CFStringRef)kHIPCharactersToBeEscaped, kCFStringEncodingUTF8);
 }
 
 static dispatch_queue_t image_request_operation_processing_queue() {
@@ -352,8 +352,8 @@ static dispatch_queue_t image_request_operation_processing_queue() {
                      withIndexPath:(NSIndexPath *)indexPath {
 
     if (indexPath) {
-        return [NSString stringWithFormat:@"%@_%d_%d",
-                identifier, indexPath.section, indexPath.row];
+        return [NSString stringWithFormat:@"%@_%ld_%ld",
+                identifier, (long)indexPath.section, (long)indexPath.row];
     } else {
         return identifier;
     }
