@@ -118,7 +118,7 @@ static dispatch_queue_t image_request_operation_processing_queue() {
     if (data) {
         [request setHTTPBody:data];
         [request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
-        [request setValue:[NSString stringWithFormat:@"%d", [data length]] forHTTPHeaderField:@"Content-Length"];
+        [request setValue:[NSString stringWithFormat:@"%lu", (unsigned long)[data length]] forHTTPHeaderField:@"Content-Length"];
     }
     
     if (self.defaultHeaders) {
@@ -366,7 +366,7 @@ static dispatch_queue_t image_request_operation_processing_queue() {
 	
 	uint8_t digest[CC_SHA1_DIGEST_LENGTH];
 	
-	CC_SHA1([stringData bytes], [stringData length], digest);
+	CC_SHA1([stringData bytes], (CC_LONG)[stringData length], digest);
 	
 	NSMutableString *hashedURL = [NSMutableString stringWithCapacity:CC_SHA1_DIGEST_LENGTH * 2];
 	
