@@ -8,6 +8,8 @@
 
 #import <Foundation/Foundation.h>
 
+#import "UIImage+HIPImageResizing.h"
+
 
 extern NSString * const HIPNetworkClientErrorDomain;
 
@@ -25,14 +27,6 @@ typedef enum {
     HIPNetworkClientParseModeJSON,
     HIPNetworkClientParseModeImage,
 } HIPNetworkClientParseMode;
-
-typedef enum {
-    HIPNetworkClientScaleModeNone,
-    HIPNetworkClientScaleModeSizeToFit,
-    HIPNetworkClientScaleModeSizeToFill,
-    HIPNetworkClientScaleModeCenter,
-    HIPNetworkClientScaleModeTop,
-} HIPNetworkClientScaleMode;
 
 typedef enum {
     HIPNetworkClientErrorInvalidURL = 100,
@@ -135,17 +129,5 @@ typedef enum {
  @param identifier Unique group identifier for the task
  */
 - (void)cancelTasksWithIdentifier:(NSString *)identifier;
-
-/** Image resizing
- 
- Resizes a CGImageRef to the target size using the provided scale mode
- 
- @param imageRef CGImageRef pointer to a valid image
- @param targetSize Target size for the final image
- @param scaleMode Scale mode to use during resizing
- */
-+ (UIImage *)resizedImageFromImage:(CGImageRef)imageRef
-                        targetSize:(CGSize)targetSize
-                         scaleMode:(HIPNetworkClientScaleMode)scaleMode;
 
 @end

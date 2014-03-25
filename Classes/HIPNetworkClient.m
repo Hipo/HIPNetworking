@@ -474,138 +474,20 @@ static dispatch_queue_t image_request_operation_processing_queue() {
     if (!data || [data length] == 0) {
         return nil;
     }
-    
-    CGDataProviderRef dataProvider = CGDataProviderCreateWithCFData((__bridge CFDataRef)data);
-    CGImageRef imageRef = nil;
 
-    CGFloat scale = [[UIScreen mainScreen] scale];
+    UIImage *image = [[UIImage alloc] initWithData:data];
     
-    if ([MIMEType isEqualToString:@"image/png"]) {
-        imageRef = CGImageCreateWithPNGDataProvider(dataProvider,  NULL, YES, kCGRenderingIntentDefault);
-    } else if ([MIMEType isEqualToString:@"image/jpeg"] || [MIMEType isEqualToString:@"image/jpg"]) {
-        imageRef = CGImageCreateWithJPEGDataProvider(dataProvider, NULL, YES, kCGRenderingIntentDefault);
-    } else {
-        UIImage *sourceImage = [[UIImage alloc] initWithData:data];
-        UIImage *image = [[UIImage alloc] initWithCGImage:[sourceImage CGImage]
-                                                    scale:scale
-                                              orientation:sourceImage.imageOrientation];
-        
-        imageRef = CGImageCreateCopy([image CGImage]);
-    }
-    
-    if (!imageRef) {
-        CGDataProviderRelease(dataProvider);
-        
+    if (image == nil) {
         return nil;
     }
     
-    UIImage *inflatedImage = [HIPNetworkClient resizedImageFromImage:imageRef
-                                                          targetSize:targetSize
-                                                           scaleMode:scaleMode];
-    
-    CGImageRelease(imageRef);
-    CGDataProviderRelease(dataProvider);
+    UIImage *inflatedImage = [image resizedImageWithTargetSize:targetSize
+                                                     scaleMode:scaleMode];
     
     if (inflatedImage == nil) {
         inflatedImage = [[UIImage alloc] initWithData:data];
     }
     
-    return inflatedImage;
-}
-
-+ (UIImage *)resizedImageFromImage:(CGImageRef)imageRef
-                        targetSize:(CGSize)targetSize
-                         scaleMode:(HIPNetworkClientScaleMode)scaleMode {
-    
-    CGFloat scale = [[UIScreen mainScreen] scale];
-    CGSize imageTargetSize = CGSizeMake(targetSize.width * scale, targetSize.height * scale);
-
-    size_t width = CGImageGetWidth(imageRef);
-    size_t height = CGImageGetHeight(imageRef);
-    size_t bitsPerComponent = CGImageGetBitsPerComponent(imageRef);
-    size_t bytesPerRow = 0;
-    CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
-    CGBitmapInfo bitmapInfo = CGImageGetBitmapInfo(imageRef);
-    
-    if (CGColorSpaceGetNumberOfComponents(colorSpace) == 3) {
-        int alpha = (bitmapInfo & kCGBitmapAlphaInfoMask);
-        if (alpha == kCGImageAlphaNone) {
-            bitmapInfo &= ~kCGBitmapAlphaInfoMask;
-            bitmapInfo |= kCGImageAlphaNoneSkipFirst;
-        } else if (!(alpha == kCGImageAlphaNoneSkipFirst || alpha == kCGImageAlphaNoneSkipLast)) {
-            bitmapInfo &= ~kCGBitmapAlphaInfoMask;
-            bitmapInfo |= kCGImageAlphaPremultipliedFirst;
-        }
-    }
-    
-    double imageScale = 1.0;
-    
-    switch (scaleMode) {
-        case HIPNetworkClientScaleModeTop:
-        case HIPNetworkClientScaleModeSizeToFill:
-            imageScale = MAX(imageTargetSize.width / width, imageTargetSize.height / height);
-            break;
-        case HIPNetworkClientScaleModeCenter:
-            imageScale = 1.0;
-            break;
-        default:
-            imageScale = MIN(imageTargetSize.width / width, imageTargetSize.height / height);
-            break;
-    }
-    
-    CGSize imageSize = CGSizeMake(ceil(width * imageScale), ceil(height * imageScale));
-    CGRect targetRect = CGRectZero;
-    
-    switch (scaleMode) {
-        case HIPNetworkClientScaleModeTop:
-            targetRect = CGRectMake(imageTargetSize.width - imageSize.width,
-                                    imageTargetSize.height - imageSize.height,
-                                    imageSize.width, imageSize.height);
-            break;
-        case HIPNetworkClientScaleModeSizeToFill:
-            targetRect = CGRectMake(floor((imageTargetSize.width - imageSize.width) / 2),
-                                    floor((imageTargetSize.height - imageSize.height) / 2),
-                                    imageSize.width, imageSize.height);
-            break;
-        case HIPNetworkClientScaleModeCenter:
-            targetRect = CGRectMake(floor((imageTargetSize.width - imageSize.width) / 2),
-                                    floor((imageTargetSize.height - imageSize.height) / 2),
-                                    imageSize.width, imageSize.height);
-            break;
-        default:
-            imageTargetSize = imageSize;
-            targetRect = CGRectMake(0.0, 0.0, imageSize.width, imageSize.height);
-            break;
-    }
-    
-    CGContextRef context = CGBitmapContextCreate(NULL,
-                                                 imageTargetSize.width,
-                                                 imageTargetSize.height,
-                                                 bitsPerComponent,
-                                                 bytesPerRow,
-                                                 colorSpace,
-                                                 bitmapInfo);
-    
-    CGColorSpaceRelease(colorSpace);
-    
-    if (!context) {
-        return nil;
-    }
-    
-    CGContextSetInterpolationQuality(context, kCGInterpolationHigh);
-    CGContextSetBlendMode(context, kCGBlendModeCopy);
-    CGContextDrawImage(context, targetRect, imageRef);
-    
-    CGImageRef inflatedImageRef = CGBitmapContextCreateImage(context);
-    
-    CGContextRelease(context);
-    
-    UIImage *inflatedImage = [[UIImage alloc] initWithCGImage:inflatedImageRef
-                                                        scale:scale
-                                                  orientation:UIImageOrientationUp];
-    
-    CGImageRelease(inflatedImageRef);
-
     return inflatedImage;
 }
 
