@@ -6,7 +6,7 @@
 //  Copyright (c) 2014 Change Theory. All rights reserved.
 //
 
-
+#import <UIKit/UIKit.h>
 
 typedef enum {
     HIPNetworkClientScaleModeNone,
