@@ -55,9 +55,9 @@ typedef enum {
  @param method Request method
  @param data Body data to be sent with the request
  */
-- (NSURLRequest *)requestWithURL:(NSURL *)url
-                          method:(HIPNetworkClientRequestMethod)method
-                            data:(NSData *)data;
+- (NSMutableURLRequest *)requestWithURL:(NSURL *)url
+                                 method:(HIPNetworkClientRequestMethod)method
+                                   data:(NSData *)data;
 
 /** Request generator using base URL, path and query string
  
@@ -70,11 +70,11 @@ typedef enum {
  @param queryParameters Query parameters that should be appended to the URL
  @param data Body data to be sent with the request
  */
-- (NSURLRequest *)requestWithBaseURL:(NSString *)baseURL
-                                path:(NSString *)path
-                              method:(HIPNetworkClientRequestMethod)method
-                     queryParameters:(NSDictionary *)queryParameters
-                                data:(NSData *)data;
+- (NSMutableURLRequest *)requestWithBaseURL:(NSString *)baseURL
+                                       path:(NSString *)path
+                                     method:(HIPNetworkClientRequestMethod)method
+                            queryParameters:(NSDictionary *)queryParameters
+                                       data:(NSData *)data;
 
 /** Request performer
  

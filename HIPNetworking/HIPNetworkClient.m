@@ -89,9 +89,9 @@ static dispatch_queue_t image_request_operation_processing_queue() {
 
 #pragma mark - Request generation
 
-- (NSURLRequest *)requestWithURL:(NSURL *)url
-                          method:(HIPNetworkClientRequestMethod)method
-                            data:(NSData *)data {
+- (NSMutableURLRequest *)requestWithURL:(NSURL *)url
+                                 method:(HIPNetworkClientRequestMethod)method
+                                   data:(NSData *)data {
 
     NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url
                                                            cachePolicy:NSURLRequestReloadRevalidatingCacheData
@@ -130,21 +130,21 @@ static dispatch_queue_t image_request_operation_processing_queue() {
     return request;
 }
 
-- (NSURLRequest *)requestWithBaseURL:(NSString *)baseURL
-                                path:(NSString *)path
-                              method:(HIPNetworkClientRequestMethod)method
-                     queryParameters:(NSDictionary *)queryParameters
-                                data:(NSData *)data {
+- (NSMutableURLRequest *)requestWithBaseURL:(NSString *)baseURL
+                                       path:(NSString *)path
+                                     method:(HIPNetworkClientRequestMethod)method
+                            queryParameters:(NSDictionary *)queryParameters
+                                       data:(NSData *)data {
 
     NSMutableString *requestPath = [NSMutableString stringWithFormat:@"%@%@", baseURL, path];
     NSString *lastCharacter = [requestPath substringFromIndex:([requestPath length] - 1)];
-	
+
     if (![lastCharacter isEqualToString:@"&"]) {
         [requestPath appendString:@"?"];
     }
     
-	if (queryParameters != nil) {
-		for (NSString *key in [queryParameters allKeys]) {
+    if (queryParameters != nil) {
+        for (NSString *key in [queryParameters allKeys]) {
             id value = [queryParameters objectForKey:key];
             
             if ((NSNull *)value == [NSNull null]) {
@@ -156,8 +156,8 @@ static dispatch_queue_t image_request_operation_processing_queue() {
             } else {
                 [requestPath appendFormat:@"%@=%@&", key, HIPEscapedQueryString((NSString *)value)];
             }
-		}
-	}
+        }
+    }
     
     if ([requestPath hasSuffix:@"&"]) {
         requestPath = [[requestPath substringToIndex:[requestPath length] - 1] mutableCopy];
