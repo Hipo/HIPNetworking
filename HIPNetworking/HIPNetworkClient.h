@@ -130,4 +130,10 @@ typedef enum {
  */
 - (void)cancelTasksWithIdentifier:(NSString *)identifier;
 
+/** Cancellation of all tasks
+
+ Cancels all available tasks regardless of any identifier
+ */
+- (void)cancelAllTasks;
+
 @end

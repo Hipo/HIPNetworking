@@ -346,6 +346,18 @@ static dispatch_queue_t image_request_operation_processing_queue() {
     }
 }
 
+- (void)cancelAllTasks {
+    for (NSString *taskKey in [self.activeTasks allKeys]) {
+        NSArray *tasks = [self.activeTasks objectForKey:taskKey];
+
+        if (tasks) {
+            for (NSURLSessionTask *task in tasks) {
+                [task cancel];
+            }
+        }
+    }
+}
+
 #pragma mark - Cache key generation
 
 + (NSString *)taskKeyForIdentifier:(NSString *)identifier
