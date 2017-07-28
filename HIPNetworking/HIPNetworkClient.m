@@ -421,59 +421,64 @@ static dispatch_queue_t image_request_operation_processing_queue() {
     if ([self isLoggingEnabled]) {
         NSLog(@"LOAD %@", [url absoluteString]);
     }
-
-    NSString *cacheKey = [HIPNetworkClient cacheKeyForURL:url
-                                                scaleMode:scaleMode
-                                               targetSize:targetSize];
     
-    UIImage *image = [[TMCache sharedCache] objectForKey:cacheKey];
-
-    if (image) {
-        completionHandler(image, url, nil);
-        return;
-    }
-    
-    NSURLRequest *request = [self requestWithURL:url
-                                          method:HIPNetworkClientRequestMethodGet
-                                            data:nil];
-    
-    [self performRequest:request
-           withParseMode:HIPNetworkClientParseModeNone
-              identifier:identifier
-               indexPath:indexPath
-            cacheResults:YES
-       completionHandler:^(id data, NSURLResponse *response, NSError *error) {
-           if (error != nil || response == nil) {
-               if (error.code == NSURLErrorCancelled) {
-                   return;
-               }
-
-               completionHandler(nil, response.URL, error);
-           } else {
-               NSData *imageData = (NSData *)data;
-               
-               if (imageData == nil || [imageData length] <= 0) {
-                   completionHandler(nil, response.URL, nil);
-                   return;
-               }
-               
-               dispatch_async(image_request_operation_processing_queue(), ^{
-                   UIImage *image = [HIPNetworkClient resizedImageFromData:imageData
-                                                              withMIMEType:[response MIMEType]
-                                                                targetSize:targetSize
-                                                                 scaleMode:scaleMode];
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
+        NSString *cacheKey = [HIPNetworkClient cacheKeyForURL:url
+                                                    scaleMode:scaleMode
+                                                   targetSize:targetSize];
+        
+        UIImage *image = [[TMCache sharedCache] objectForKey:cacheKey];
+        
+        if (image) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                completionHandler(image, url, nil);
+            });
+            
+            return;
+        }
+        
+        NSURLRequest *request = [self requestWithURL:url
+                                              method:HIPNetworkClientRequestMethodGet
+                                                data:nil];
+        
+        [self performRequest:request
+               withParseMode:HIPNetworkClientParseModeNone
+                  identifier:identifier
+                   indexPath:indexPath
+                cacheResults:YES
+           completionHandler:^(id data, NSURLResponse *response, NSError *error) {
+               if (error != nil || response == nil) {
+                   if (error.code == NSURLErrorCancelled) {
+                       return;
+                   }
                    
-                   dispatch_async(dispatch_get_main_queue(), ^{
-                       completionHandler(image, response.URL, nil);
+                   completionHandler(nil, response.URL, error);
+               } else {
+                   NSData *imageData = (NSData *)data;
+                   
+                   if (imageData == nil || [imageData length] <= 0) {
+                       completionHandler(nil, response.URL, nil);
+                       return;
+                   }
+                   
+                   dispatch_async(image_request_operation_processing_queue(), ^{
+                       UIImage *image = [HIPNetworkClient resizedImageFromData:imageData
+                                                                  withMIMEType:[response MIMEType]
+                                                                    targetSize:targetSize
+                                                                     scaleMode:scaleMode];
                        
                        if (image) {
                            [[TMCache sharedCache] setObject:image
                                                      forKey:cacheKey];
                        }
+                       
+                       dispatch_async(dispatch_get_main_queue(), ^{
+                           completionHandler(image, response.URL, nil);
+                       });
                    });
-               });
-           }
-       }];
+               }
+           }];
+    });
 }
 
 #pragma mark - Image resize
