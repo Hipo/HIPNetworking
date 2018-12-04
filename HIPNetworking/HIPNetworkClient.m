@@ -374,36 +374,19 @@ static dispatch_queue_t image_request_operation_processing_queue() {
     });
 }
 
-- (void)cancelTasksWithIdentifierPrefix:(NSString *)identifierPrefix {
-    if (identifierPrefix == nil) {
-        return;
-    }
-    
+- (void)cancelAllTasks {
     dispatch_async(self.taskOperationQueue, ^{
-        NSDictionary *frozenTasks = [self.activeTasks copy];
-        NSMutableArray *unwantedTaskKeys = [NSMutableArray array];
-        
-        for (NSString *taskKey in frozenTasks) {
-            if (![taskKey hasPrefix:identifierPrefix]) {
-                continue;
-            }
+        for (NSString *key in self.activeTasks) {
+            NSArray *tasks = self.activeTasks[key];
             
-            NSArray *tasks = [self.activeTasks objectForKey:taskKey];
-            
-            if (tasks) {
-                if ([tasks isKindOfClass:[NSArray class]]) { // For some reason, the object for task key may be an unknown object which causes crash. Remove the key-value pair if values does not have array value.
-                    for (NSURLSessionTask *task in tasks) {
-                        [task cancel];
-                    }
-                } else {
-                    [unwantedTaskKeys addObject:taskKey];
+            if ([tasks isKindOfClass:[NSArray class]]) {
+                for (NSURLSessionTask *task in tasks) {
+                    [task cancel];
                 }
             }
         }
         
-        for (NSString *taskKey in unwantedTaskKeys) {
-            [self.activeTasks removeObjectForKey:taskKey];
-        }
+        [self.activeTasks removeAllObjects];
     });
 }
 
