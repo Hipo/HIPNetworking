@@ -1,6 +1,5 @@
 //
 //  HIPNetworkClient.m
-//  Chroma
 //
 //  Created by Taylan Pince on 2013-07-15.
 //  Copyright (c) 2013 Change Theory. All rights reserved.
@@ -17,13 +16,12 @@
 NSString * const HIPNetworkClientErrorDomain = @"HIPNetworkClientErrorDomain";
 
 static NSTimeInterval const HIPNetworkClientDefaultTimeoutInterval = 30.0;
+static NSTimeInterval const HIPNetworkClientCacheLifetime = 60.0 * 60.0 * 24.0;
 
 
-static NSString * HIPEscapedQueryString(NSString *string) {
-    static NSString * const kHIPCharactersToBeEscaped = @":/?&=;+!@#$()',*";
-    static NSString * const kHIPCharactersToLeaveUnescaped = @"[].";
-    
-	return (__bridge_transfer  NSString *)CFURLCreateStringByAddingPercentEscapes(kCFAllocatorDefault, (__bridge CFStringRef)string, (__bridge CFStringRef)kHIPCharactersToLeaveUnescaped, (__bridge CFStringRef)kHIPCharactersToBeEscaped, kCFStringEncodingUTF8);
+extern NSString * HIPEscapedQueryString(NSString *string) {
+    NSCharacterSet *allowedCharset = [[NSCharacterSet characterSetWithCharactersInString:@":/?&=;+!@#$()',* "] invertedSet];
+    return [string stringByAddingPercentEncodingWithAllowedCharacters:allowedCharset];
 }
 
 static dispatch_queue_t image_request_operation_processing_queue() {
@@ -39,14 +37,10 @@ static dispatch_queue_t image_request_operation_processing_queue() {
 
 @interface HIPNetworkClient ()
 
+@property (nonatomic, strong) dispatch_queue_t taskOperationQueue;
+
 + (NSString *)taskKeyForIdentifier:(NSString *)identifier
                      withIndexPath:(NSIndexPath *)indexPath;
-
-+ (NSString *)cacheKeyForURL:(NSURL *)url;
-
-+ (NSString *)cacheKeyForURL:(NSURL *)url
-                   scaleMode:(HIPNetworkClientScaleMode)scaleMode
-                  targetSize:(CGSize)targetSize;
 
 + (UIImage *)resizedImageFromData:(NSData *)data
                      withMIMEType:(NSString *)MIMEType
@@ -65,13 +59,17 @@ static dispatch_queue_t image_request_operation_processing_queue() {
 
 #pragma mark - Init
 
-- (id)init {
+- (instancetype)init {
     self = [super init];
     
     if (self) {
-        [self setActiveTasks:[NSMutableDictionary dictionary]];
-        [self setDefaultHeaders:@{@"Accept": @"application/json",
-                                  @"Accept-Encoding": @"gzip"}];
+        _activeTasks = [NSMutableDictionary dictionary];
+        _defaultHeaders = @{@"Accept": @"application/json",
+                            @"Accept-Encoding": @"gzip"};
+        
+        _taskOperationQueue = dispatch_queue_create("com.hipo.hipnetworking.task_operation_queue", DISPATCH_QUEUE_SERIAL);
+        
+        [[TMCache sharedCache] trimToDate:[NSDate dateWithTimeIntervalSinceNow:-HIPNetworkClientCacheLifetime]];
     }
     
     return self;
@@ -89,10 +87,10 @@ static dispatch_queue_t image_request_operation_processing_queue() {
 
 #pragma mark - Request generation
 
-- (NSMutableURLRequest *)requestWithURL:(NSURL *)url
-                                 method:(HIPNetworkClientRequestMethod)method
-                                   data:(NSData *)data {
-
+- (NSURLRequest *)requestWithURL:(NSURL *)url
+                          method:(HIPNetworkClientRequestMethod)method
+                            data:(NSData *)data {
+    
     NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url
                                                            cachePolicy:NSURLRequestReloadRevalidatingCacheData
                                                        timeoutInterval:HIPNetworkClientDefaultTimeoutInterval];
@@ -130,15 +128,15 @@ static dispatch_queue_t image_request_operation_processing_queue() {
     return request;
 }
 
-- (NSMutableURLRequest *)requestWithBaseURL:(NSString *)baseURL
-                                       path:(NSString *)path
-                                     method:(HIPNetworkClientRequestMethod)method
-                            queryParameters:(NSDictionary *)queryParameters
-                                       data:(NSData *)data {
-
+- (NSURLRequest *)requestWithBaseURL:(NSString *)baseURL
+                                path:(NSString *)path
+                              method:(HIPNetworkClientRequestMethod)method
+                     queryParameters:(NSDictionary *)queryParameters
+                                data:(NSData *)data {
+    
     NSMutableString *requestPath = [NSMutableString stringWithFormat:@"%@%@", baseURL, path];
     NSString *lastCharacter = [requestPath substringFromIndex:([requestPath length] - 1)];
-
+    
     if (![lastCharacter isEqualToString:@"&"]) {
         [requestPath appendString:@"?"];
     }
@@ -177,7 +175,7 @@ static dispatch_queue_t image_request_operation_processing_queue() {
           cacheResults:(BOOL)cache
      completionHandler:(void (^)(id, NSURLResponse*, NSError *))completionHandler {
     
-    if ([self isLoggingEnabled] && request.URL != nil) {
+    if ([self isLoggingEnabled] && request.URL != nil && parseMode == HIPNetworkClientParseModeJSON) {
         NSLog(@"%@ %@", request.HTTPMethod, [request.URL absoluteString]);
     }
     
@@ -208,7 +206,10 @@ static dispatch_queue_t image_request_operation_processing_queue() {
                     break;
             }
             
-            completionHandler(responseBody, response, nil);
+            dispatch_async(dispatch_get_main_queue(), ^{
+                completionHandler(responseBody, response, nil);
+            });
+            
             return;
         }
     }
@@ -236,12 +237,13 @@ static dispatch_queue_t image_request_operation_processing_queue() {
                         case HIPNetworkClientParseModeImage:
                             responseBody = [UIImage imageWithData:data];
                             break;
-                        case HIPNetworkClientParseModeJSON:
+                        case HIPNetworkClientParseModeJSON: {
                             responseBody = [NSJSONSerialization
                                             JSONObjectWithData:data
                                             options:0
                                             error:nil];
                             break;
+                        }
                         case HIPNetworkClientParseModeNone:
                             responseBody = data;
                             break;
@@ -253,7 +255,7 @@ static dispatch_queue_t image_request_operation_processing_queue() {
                                                 userInfo:nil];
                     }
                 }
-
+                
                 dispatch_async(dispatch_get_main_queue(), ^{
                     completionHandler(responseBody, response, error);
                 });
@@ -267,12 +269,19 @@ static dispatch_queue_t image_request_operation_processing_queue() {
                                               forKey:[HIPNetworkClient cacheKeyForURL:request.URL]];
                 }
                 
-                if (taskKey) {
+                if (taskKey &&
+                    [taskKey isKindOfClass:[NSString class]]) {
                     [self removeTask:task forKey:taskKey];
                 }
             }];
     
     if (taskKey) {
+        if (![taskKey isKindOfClass:[NSString class]]) {
+            NSLog(@"TASK KEY NOT STRING");
+            
+            return;
+        }
+        
         [self addTask:task forKey:taskKey];
     }
     
@@ -282,88 +291,137 @@ static dispatch_queue_t image_request_operation_processing_queue() {
 #pragma mark - Task management
 
 - (void)addTask:(NSURLSessionTask *)task forKey:(NSString *)key {
-    NSArray *currentTasks = [self.activeTasks objectForKey:key];
-    NSMutableArray *newTasks = nil;
-    
-    if (currentTasks == nil) {
-        newTasks = [NSMutableArray array];
-    } else {
-        newTasks = [currentTasks mutableCopy];
-    }
-    
-    [newTasks addObject:task];
-    
-    [self.activeTasks setObject:newTasks forKey:key];
+    dispatch_async(self.taskOperationQueue, ^{
+        
+        NSArray *currentTasks = [self.activeTasks objectForKey:key];
+        NSMutableArray *newTasks = nil;
+        
+        if (currentTasks == nil) {
+            newTasks = [NSMutableArray array];
+        } else if ([currentTasks isKindOfClass:[NSArray class]]) { // Just defensive code.
+            newTasks = [currentTasks mutableCopy];
+        } else {
+            [self.activeTasks removeObjectForKey:key]; // Remove unwanted key-value pair from active tasks.
+            
+            newTasks = [NSMutableArray array];
+        }
+        
+        [newTasks addObject:task];
+        
+        [self.activeTasks setObject:newTasks forKey:key];
+    });
 }
 
 - (void)removeTask:(NSURLSessionTask *)task forKey:(NSString *)key {
-    NSArray *currentTasks = [self.activeTasks objectForKey:key];
-    
-    if (currentTasks == nil) {
-        return;
-    } else if ([currentTasks count] == 1) {
-        [self.activeTasks removeObjectForKey:key];
+    dispatch_async(self.taskOperationQueue, ^{
         
-        return;
-    }
-
-    NSMutableArray *newTasks = [currentTasks mutableCopy];
-    
-    [newTasks removeObject:task];
-    
-    [self.activeTasks setObject:newTasks forKey:key];
+        NSArray *currentTasks = [self.activeTasks objectForKey:key];
+        
+        if (currentTasks == nil) {
+            return;
+        } else if (![currentTasks isKindOfClass:[NSArray class]]) { // Defensive check.
+            [self.activeTasks removeObjectForKey:key]; // Remove unwanted key-value pair from active tasks.
+            
+            return;
+        }
+        
+        NSMutableArray *newTasks = [currentTasks mutableCopy];
+        
+        [newTasks removeObject:task];
+        
+        if ([newTasks count] == 0) { // No need to hold any value for the key in active tasks.
+            [self.activeTasks removeObjectForKey:key];
+        } else {
+            [self.activeTasks setObject:newTasks forKey:key];
+        }
+    });
 }
 
 #pragma mark - Cancellation
 
 - (void)cancelTaskWithIdentifier:(NSString *)identifier
                        indexPath:(NSIndexPath *)indexPath {
+    
     NSString *taskKey = [HIPNetworkClient taskKeyForIdentifier:identifier
                                                  withIndexPath:indexPath];
     
-    NSArray *tasks = [self.activeTasks objectForKey:taskKey];
-    
-    if (tasks) {
-        for (NSURLSessionTask *task in tasks) {
-            [task cancel];
-        }
-    }
+    [self cancelTasksWithIdentifier:taskKey];
 }
 
 - (void)cancelTasksWithIdentifier:(NSString *)identifier {
-    for (NSString *taskKey in [self.activeTasks allKeys]) {
-        if (![taskKey hasPrefix:identifier]) {
-            continue;
-        }
-
-        NSArray *tasks = [self.activeTasks objectForKey:taskKey];
+    if (identifier == nil) {
+        return;
+    }
+    
+    dispatch_async(self.taskOperationQueue, ^{
+        NSDictionary *frozenTasks = [self.activeTasks copy];
+        NSArray *tasks = [frozenTasks objectForKey:identifier];
+        NSMutableArray *unwantedTaskKeys = [NSMutableArray array];
         
         if (tasks) {
-            for (NSURLSessionTask *task in tasks) {
-                [task cancel];
+            if ([tasks isKindOfClass:[NSArray class]]) { // For some reason, the object for task key may be an unknown object which causes crash. Remove the key-value pair if values does not have array value.
+                for (NSURLSessionTask *task in tasks) {
+                    [task cancel];
+                }
+            } else {
+                [unwantedTaskKeys addObject:identifier];
             }
         }
-    }
+        
+        for (NSString *taskKey in unwantedTaskKeys) {
+            [self.activeTasks removeObjectForKey:taskKey];
+        }
+    });
 }
 
-- (void)cancelAllTasks {
-    for (NSString *taskKey in [self.activeTasks allKeys]) {
-        NSArray *tasks = [self.activeTasks objectForKey:taskKey];
-
-        if (tasks) {
-            for (NSURLSessionTask *task in tasks) {
-                [task cancel];
+- (void)cancelTasksWithIdentifierPrefix:(NSString *)identifierPrefix {
+    if (identifierPrefix == nil) {
+        return;
+    }
+    
+    dispatch_async(self.taskOperationQueue, ^{
+        NSDictionary *frozenTasks = [self.activeTasks copy];
+        NSMutableArray *unwantedTaskKeys = [NSMutableArray array];
+        
+        for (NSString *taskKey in frozenTasks) {
+            if (![taskKey hasPrefix:identifierPrefix]) {
+                continue;
+            }
+            
+            NSArray *tasks = [self.activeTasks objectForKey:taskKey];
+            
+            if (tasks) {
+                if ([tasks isKindOfClass:[NSArray class]]) { // For some reason, the object for task key may be an unknown object which causes crash. Remove the key-value pair if values does not have array value.
+                    for (NSURLSessionTask *task in tasks) {
+                        [task cancel];
+                    }
+                } else {
+                    [unwantedTaskKeys addObject:taskKey];
+                }
             }
         }
-    }
+        
+        for (NSString *taskKey in unwantedTaskKeys) {
+            [self.activeTasks removeObjectForKey:taskKey];
+        }
+    });
 }
 
 #pragma mark - Cache key generation
 
++ (void)clearCacheForKey:(NSString *)cacheKey {
+    [[TMCache sharedCache] removeObjectForKey:cacheKey];
+}
+
 + (NSString *)taskKeyForIdentifier:(NSString *)identifier
                      withIndexPath:(NSIndexPath *)indexPath {
-
+    
     if (indexPath) {
+        if (identifier == nil ||
+            ![identifier isKindOfClass:[NSString class]]) {
+            return nil;
+        }
+        
         return [NSString stringWithFormat:@"%@_%ld_%ld",
                 identifier, (long)indexPath.section, (long)indexPath.row];
     } else {
@@ -374,17 +432,17 @@ static dispatch_queue_t image_request_operation_processing_queue() {
 + (NSString *)cacheKeyForURL:(NSURL *)url {
     NSString *absoluteURL = [url absoluteString];
     const char *cString = [absoluteURL cStringUsingEncoding:NSUTF8StringEncoding];
-	NSData *stringData = [NSData dataWithBytes:cString length:[absoluteURL length]];
-	
-	uint8_t digest[CC_SHA1_DIGEST_LENGTH];
-	
-	CC_SHA1([stringData bytes], (CC_LONG)[stringData length], digest);
-	
-	NSMutableString *hashedURL = [NSMutableString stringWithCapacity:CC_SHA1_DIGEST_LENGTH * 2];
-	
-	for (int i = 0; i < CC_SHA1_DIGEST_LENGTH; i++) {
-		[hashedURL appendFormat:@"%02x", digest[i]];
-	}
+    NSData *stringData = [NSData dataWithBytes:cString length:[absoluteURL length]];
+    
+    uint8_t digest[CC_SHA1_DIGEST_LENGTH];
+    
+    CC_SHA1([stringData bytes], (CC_LONG)[stringData length], digest);
+    
+    NSMutableString *hashedURL = [NSMutableString stringWithCapacity:CC_SHA1_DIGEST_LENGTH * 2];
+    
+    for (int i = 0; i < CC_SHA1_DIGEST_LENGTH; i++) {
+        [hashedURL appendFormat:@"%02x", digest[i]];
+    }
     
     return hashedURL;
 }
@@ -410,6 +468,23 @@ static dispatch_queue_t image_request_operation_processing_queue() {
                indexPath:(NSIndexPath *)indexPath
        completionHandler:(void (^)(UIImage *, NSURL *, NSError *))completionHandler {
     
+    [self loadImageFromURL:url
+             withScaleMode:scaleMode
+                targetSize:targetSize
+                identifier:identifier
+                 indexPath:indexPath
+            notifyOnCancel:NO
+         completionHandler:completionHandler];
+}
+
+- (void)loadImageFromURL:(NSURL *)url
+           withScaleMode:(HIPNetworkClientScaleMode)scaleMode
+              targetSize:(CGSize)targetSize
+              identifier:(NSString *)identifier
+               indexPath:(NSIndexPath *)indexPath
+          notifyOnCancel:(BOOL)notifyOnCancel
+       completionHandler:(void (^)(UIImage *, NSURL *, NSError *))completionHandler {
+    
     if (url == nil) {
         completionHandler(nil, nil, [NSError errorWithDomain:HIPNetworkClientErrorDomain
                                                         code:HIPNetworkClientErrorInvalidURL
@@ -418,20 +493,16 @@ static dispatch_queue_t image_request_operation_processing_queue() {
         return;
     }
     
-    if ([self isLoggingEnabled]) {
-        NSLog(@"LOAD %@", [url absoluteString]);
-    }
-    
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
         NSString *cacheKey = [HIPNetworkClient cacheKeyForURL:url
                                                     scaleMode:scaleMode
                                                    targetSize:targetSize];
         
-        UIImage *image = [[TMCache sharedCache] objectForKey:cacheKey];
+        UIImage *cachedImage = [[TMCache sharedCache] objectForKey:cacheKey];
         
-        if (image) {
+        if (cachedImage) {
             dispatch_async(dispatch_get_main_queue(), ^{
-                completionHandler(image, url, nil);
+                completionHandler(cachedImage, url, nil);
             });
             
             return;
@@ -445,10 +516,10 @@ static dispatch_queue_t image_request_operation_processing_queue() {
                withParseMode:HIPNetworkClientParseModeNone
                   identifier:identifier
                    indexPath:indexPath
-                cacheResults:YES
+                cacheResults:NO
            completionHandler:^(id data, NSURLResponse *response, NSError *error) {
                if (error != nil || response == nil) {
-                   if (error.code == NSURLErrorCancelled) {
+                   if (error.code == NSURLErrorCancelled && !notifyOnCancel) {
                        return;
                    }
                    
@@ -462,18 +533,24 @@ static dispatch_queue_t image_request_operation_processing_queue() {
                    }
                    
                    dispatch_async(image_request_operation_processing_queue(), ^{
-                       UIImage *image = [HIPNetworkClient resizedImageFromData:imageData
-                                                                  withMIMEType:[response MIMEType]
-                                                                    targetSize:targetSize
-                                                                     scaleMode:scaleMode];
+                       UIImage *resizedImage;
                        
-                       if (image) {
-                           [[TMCache sharedCache] setObject:image
+                       if (scaleMode == HIPNetworkClientScaleModeNone) {
+                           resizedImage = [[UIImage alloc] initWithData:imageData];
+                       } else {
+                           resizedImage = [HIPNetworkClient resizedImageFromData:imageData
+                                                                    withMIMEType:[response MIMEType]
+                                                                      targetSize:targetSize
+                                                                       scaleMode:scaleMode];
+                       }
+                       
+                       if (resizedImage) {
+                           [[TMCache sharedCache] setObject:resizedImage
                                                      forKey:cacheKey];
                        }
                        
                        dispatch_async(dispatch_get_main_queue(), ^{
-                           completionHandler(image, response.URL, nil);
+                           completionHandler(resizedImage, url, nil);
                        });
                    });
                }
@@ -487,11 +564,11 @@ static dispatch_queue_t image_request_operation_processing_queue() {
                      withMIMEType:(NSString *)MIMEType
                        targetSize:(CGSize)targetSize
                         scaleMode:(HIPNetworkClientScaleMode)scaleMode {
-
+    
     if (!data || [data length] == 0) {
         return nil;
     }
-
+    
     UIImage *image = [[UIImage alloc] initWithData:data];
     
     if (image == nil) {
